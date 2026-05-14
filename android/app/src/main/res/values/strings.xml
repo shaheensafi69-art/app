@@ -1,7 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">com.safipay.app</string>
-    <string name="title_activity_main">com.safipay.app</string>
-    <string name="package_name">com.example.app</string>
-    <string name="custom_url_scheme">com.example.app</string>
+    <!-- نام نمایشی اپلیکیشن در گوشی -->
+    <string name="app_name">SafiPay</string>
+    
+    <!-- عنوان پنجره اصلی -->
+    <string name="title_activity_main">SafiPay</string>
+    
+    <!-- شناسه‌های سیستمی (بهتر است با نام برند شما یکی باشد) -->
+    <string name="package_name">com.safipay.app</string>
+    <string name="custom_url_scheme">com.safipay.app</string>
 </resources>
