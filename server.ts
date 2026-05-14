@@ -1,4 +1,5 @@
-import express, { Request } from "express";
+import express from "express";
+import type { Request, Response } from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";

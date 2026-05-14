@@ -1,13 +1,13 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.safipay.app', 
-  appName: 'SafiPay',      
-  webDir: 'dist',
+  appId: 'com.safipay.app', // نام پکیج شما
+  appName: 'SafiPay',
+  webDir: 'dist', // یا build
   server: {
-    // آدرس سرور جدید (بدون پورت ریموت دسکتاپ، فقط آی‌پی و پورت بک‌اِند)
-    url: 'http://193.106.199.13:3000', 
-    cleartext: true
+    androidScheme: 'https',
+    cleartext: true, // اجازه ارتباط با آی‌پی بدون SSL
+    allowNavigation: ['193.106.199.13']
   }
 };
 
