@@ -1,12 +1,12 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.safipay.app', // پیشنهاد می‌شود این با نام برند شما یکی باشد
-  appName: 'SafiPay',       // نام نمایشی اپلیکیشن
+  appId: 'com.safipay.app', 
+  appName: 'SafiPay',      
   webDir: 'dist',
   server: {
-    // آی‌پی مک شما که در مرحله قبل پیدا کردیم
-    url: 'http://192.168.0.112:3000', 
+    // آدرس سرور جدید (بدون پورت ریموت دسکتاپ، فقط آی‌پی و پورت بک‌اِند)
+    url: 'http://193.106.199.13:3000', 
     cleartext: true
   }
 };
