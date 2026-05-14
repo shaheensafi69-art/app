@@ -1,0 +1,6 @@
+{
+  "name": "SafiPay",
+  "description": "A premium fintech application utilizing Stripe Treasury and Stripe Issuing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
