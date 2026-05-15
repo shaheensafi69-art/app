@@ -374,23 +374,85 @@ export default function Profile() {
             )}
 
             {currentView === 'security' && (
-              <div className="glass-card rounded-2xl p-4 flex items-center justify-between opacity-80">
-                <div>
-                   <h4 className="font-medium text-slate-200">2-Factor Auth</h4>
-                   <p className="text-xs text-slate-400">Secure your account</p>
+              <div className="space-y-4">
+                <div className="glass-card rounded-2xl p-4 flex flex-col gap-4">
+                   <div className="flex items-center justify-between">
+                     <div>
+                        <h4 className="font-medium text-slate-200">App PIN</h4>
+                        <p className="text-xs text-slate-400">Secure application access</p>
+                     </div>
+                     <button
+                        type="button" 
+                        onClick={() => {
+                           localStorage.removeItem('safi_pin');
+                           localStorage.removeItem('safi_biometric');
+                           sessionStorage.removeItem('safi_unlocked');
+                           window.location.reload();
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 text-emerald-400 font-medium rounded-lg text-sm"
+                     >
+                       Reset PIN
+                     </button>
+                   </div>
+                   
+                   <hr className="border-slate-800" />
+                   
+                   <div className="flex items-center justify-between">
+                     <div>
+                        <h4 className="font-medium text-slate-200">Biometric Login</h4>
+                        <p className="text-xs text-slate-400">Face ID / Fingerprint</p>
+                     </div>
+                     <button 
+                        type="button"
+                        onClick={async () => {
+                           const currentlyEnabled = localStorage.getItem('safi_biometric') === 'true';
+                           if (currentlyEnabled) {
+                              localStorage.setItem('safi_biometric', 'false');
+                              alert("Biometric login disabled.");
+                           } else {
+                              try {
+                                const challenge = new Uint8Array(32);
+                                crypto.getRandomValues(challenge);
+                                const credential = await navigator.credentials.get({
+                                    publicKey: { challenge, rpId: window.location.hostname, userVerification: "required" }
+                                });
+                                if (credential) {
+                                   localStorage.setItem('safi_biometric', 'true');
+                                   alert("Biometric login enabled successfully!");
+                                }
+                              } catch(e) {
+                                alert("Failed to enable biometrics. Your device might not support it.");
+                              }
+                           }
+                           setSaveStatus('idle'); // Just to trigger a re-render
+                        }}
+                        className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${localStorage.getItem('safi_biometric') === 'true' ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                     >
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${localStorage.getItem('safi_biometric') === 'true' ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                     </button>
+                   </div>
                 </div>
-                <div className="px-3 py-1 bg-slate-800 rounded-full text-xs text-slate-400">Coming Soon</div>
+
+                <div className="glass-card rounded-2xl p-4 flex items-center justify-between opacity-80">
+                  <div>
+                     <h4 className="font-medium text-slate-200">2-Factor Auth</h4>
+                     <p className="text-xs text-slate-400">Secure your account</p>
+                  </div>
+                  <div className="px-3 py-1 bg-slate-800 rounded-full text-xs text-slate-400">Coming Soon</div>
+                </div>
               </div>
             )}
 
-            <button 
-              type="submit"
-              disabled={saving}
-              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2 disabled:opacity-50"
-            >
-              <Save className="w-5 h-5" />
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            {currentView !== 'security' && (
+              <button 
+                type="submit"
+                disabled={saving}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2 disabled:opacity-50"
+              >
+                <Save className="w-5 h-5" />
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            )}
 
             {saveStatus === 'saved' && (
               <p className="text-center text-emerald-400 text-sm animate-pulse">Profile updated successfully!</p>

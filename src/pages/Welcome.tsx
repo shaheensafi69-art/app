@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser, registerUser } from '../lib/api';
+import { loginUser, registerUser, registerDevice } from '../lib/api';
 import { ShieldCheck, Wallet, UserCircle, LogIn, UserPlus, FileText, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -36,8 +36,12 @@ export default function Welcome() {
   const navigate = useNavigate();
 
   useEffect(() => {
-     // Intentionally omitting localStorage check so it always shows onboarding as requested by user
-  }, []);
+     const existingUserId = localStorage.getItem('userId');
+     if (existingUserId) {
+       registerDevice(existingUserId).catch(console.error);
+       navigate('/dashboard');
+     }
+  }, [navigate]);
 
   const handleNextSlide = () => {
      if (slideIndex < ONBOARDING_SLIDES.length - 1) {
@@ -63,6 +67,7 @@ export default function Welcome() {
         alert("Authentication failed: " + res.error);
       } else {
         localStorage.setItem('userId', res.id);
+        await registerDevice(res.id);
         navigate('/dashboard');
       }
     } catch (err: any) {

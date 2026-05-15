@@ -65,3 +65,139 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+
+CREATE TABLE IF NOT EXISTS public.user_devices (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  device_name text,
+  device_id text not null unique,
+  fcm_token text,
+  last_login timestamp with time zone default timezone('utc'::text, now()),
+  is_biometric_enabled boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+CREATE TABLE IF NOT EXISTS public.cards (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  stripe_card_id text not null,
+  last4 text,
+  brand text,
+  status text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  exp_month numeric,
+  exp_year numeric,
+  type text
+);
+
+CREATE TABLE IF NOT EXISTS public.company_revenue (
+  id uuid default gen_random_uuid() primary key,
+  amount numeric not null,
+  currency text not null,
+  source_transaction_id text,
+  service_type text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+CREATE TABLE IF NOT EXISTS public.gift_cards (
+  id uuid default gen_random_uuid() primary key,
+  sender_id uuid references public.profiles(id) on delete cascade not null,
+  code text not null unique,
+  amount numeric not null,
+  currency text not null,
+  is_redeemed boolean default false,
+  redeemed_by uuid references public.profiles(id) on delete set null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  expiry_date timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS public.transactions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade,
+  wallet_id uuid,
+  stripe_transaction_id text,
+  amount numeric not null,
+  type text not null,
+  description text,
+  status text default 'completed',
+  vendor_name text,
+  exchange_rate numeric,
+  related_transaction_id uuid,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+CREATE TABLE IF NOT EXISTS public.withdrawals (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  amount numeric not null,
+  currency text not null,
+  bank_details jsonb,
+  fee numeric default 0,
+  status text default 'pending',
+  admin_note text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  title text,
+  body text,
+  type text,
+  is_read boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+
+CREATE TABLE IF NOT EXISTS public.otp_codes (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  code text not null,
+  type text,
+  expires_at timestamp with time zone not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+
+CREATE TABLE IF NOT EXISTS public.support_tickets (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  subject text not null,
+  message text not null,
+  status text default 'open',
+  priority text default 'normal',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+CREATE TABLE IF NOT EXISTS public.ticket_messages (
+  id uuid default gen_random_uuid() primary key,
+  ticket_id uuid references public.support_tickets(id) on delete cascade not null,
+  sender_id uuid references public.profiles(id) on delete cascade not null,
+  message text not null,
+  is_admin_reply boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+
+CREATE TABLE IF NOT EXISTS public.topup_orders (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  operator_name text,
+  service_type text,
+  target_number text,
+  amount_spent numeric not null,
+  currency text not null,
+  status text default 'pending',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+
+CREATE TABLE IF NOT EXISTS public.wallets (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  currency text not null,
+  balance numeric default 0.00,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);

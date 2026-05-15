@@ -1,5 +1,4 @@
-import express from "express";
-import type { Request, Response } from "express";
+import express, { Request } from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
@@ -338,9 +337,13 @@ app.get("/api/dashboard/:userId", async (req, res) => {
 
     let balance = 0;
     let transactions: any[] = [];
+    let wallets: any[] = [];
     const stripe = getStripe();
 
     try {
+        const { data: dbWallets } = await supabase.from('wallets').select('*').eq('user_id', userId);
+        if (dbWallets) wallets = dbWallets;
+
         if (profile.stripe_customer_id) {
             try {
                 const charges = await stripe.charges.list({ customer: profile.stripe_customer_id, limit: 10 });
@@ -352,6 +355,24 @@ app.get("/api/dashboard/:userId", async (req, res) => {
                 if (customer.balance) {
                     balance = customer.balance / 100;
                 }
+                
+                // Fetch Stripe cash balances for multi-currency wallets simulation
+                try {
+                    const cashBalance = await stripe.customers.retrieveCashBalance(profile.stripe_customer_id);
+                    if (cashBalance && cashBalance.available) {
+                         const codes = Object.keys(cashBalance.available);
+                         for (const currency of codes) {
+                             const idx = wallets.findIndex(w => w.currency === currency.toUpperCase());
+                             const stripeBal = cashBalance.available[currency] / 100;
+                             if (idx >= 0) {
+                                 wallets[idx].balance = stripeBal;
+                             } else {
+                                 wallets.push({ id: `temp-${currency}`, currency: currency.toUpperCase(), balance: stripeBal });
+                             }
+                         }
+                    }
+                } catch(e) {}
+                
             } catch (stripeErr: any) {
                 if (stripeErr.message?.includes('No such customer')) {
                     const newCustomer = await stripe.customers.create({ email: profile.email || `${userId}@example.com` });
@@ -362,6 +383,13 @@ app.get("/api/dashboard/:userId", async (req, res) => {
             }
         }
     } catch(err) {}
+
+    // Some mock exchange rates and currencies mimicking what Stripe's exchange rates would provide
+    const mockCurrencies = [
+      { id: 'gbp', symbol: 'GBP', symbolChar: '£', rate: 1.0, change: 0.1 },
+      { id: 'usd', symbol: 'USD', symbolChar: '$', rate: 1.25, change: -0.2 },
+      { id: 'eur', symbol: 'EUR', symbolChar: '€', rate: 1.15, change: 0.4 },
+    ];
 
     res.json({
         user: {
@@ -374,7 +402,8 @@ app.get("/api/dashboard/:userId", async (req, res) => {
         },
         balance,
         transactions,
-        currencies: []
+        wallets,
+        currencies: mockCurrencies
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -408,7 +437,8 @@ app.get("/api/cards/:userId", async (req, res) => {
                     status: c.status,
                     stripeCardId: c.id,
                     type: c.type,
-                    design: local?.brand || 'Default'
+                    design: local?.brand || 'Default',
+                    label: c.metadata?.label || ''
                 };
             });
         }
@@ -449,21 +479,49 @@ app.post("/api/transfer/:userId", async (req, res) => {
         }
     }
     
+    const feeAmount = 1.00;
+    const totalDeduction = amount + feeAmount;
+
     // Create a balance transaction directly to reflect ledger changes
     try {
         await stripe.customers.createBalanceTransaction(customerId, {
-          amount: Math.round(amount * 100), // Positive subtracts from their credit
+          amount: Math.round(totalDeduction * 100), // Positive subtracts from their credit
           currency: 'gbp',
-          description: `Transfer to ${to}`
+          description: `Transfer to ${to} + Fee`
         });
 
-        await supabase.from('transactions').insert({
+        const { data: tx } = await supabase.from('transactions').insert({
             user_id: userId,
             amount: amount,
             type: 'transfer',
             status: 'completed',
             vendor_name: `Transfer to ${to}`
+        }).select().single();
+
+        await supabase.from('notifications').insert({
+            user_id: userId,
+            title: 'Transfer Successful',
+            body: `You have successfully transferred £${amount.toFixed(2)} to ${to}.`,
+            type: 'debit',
+            is_read: false
         });
+
+        const { data: feeTx } = await supabase.from('transactions').insert({
+            user_id: userId,
+            amount: feeAmount,
+            type: 'fee',
+            status: 'completed',
+            vendor_name: `Transfer Fee`
+        }).select().single();
+
+        if (feeTx) {
+            await supabase.from('company_revenue').insert({
+                amount: feeAmount,
+                currency: 'GBP',
+                source_transaction_id: feeTx.id,
+                service_type: 'transfer'
+            });
+        }
     } catch(dbErr: any) {
         console.error("DB Insert Transaction Error:", dbErr.message);
     }
@@ -621,19 +679,43 @@ app.post("/api/cards/:userId/issue", async (req, res) => {
        };
     }
 
+    const feeAmount = type === 'physical' ? 5.00 : 2.00;
+
     const newCard = await stripe.issuing.cards.create(cardOptions);
 
     try {
+      if (profile.stripe_customer_id) {
+         await getStripe().customers.createBalanceTransaction(profile.stripe_customer_id, {
+           amount: Math.round(feeAmount * 100),
+           currency: 'gbp',
+           description: `Fee for issuing ${type} card`
+         });
+      }
+
       await supabase.from('cards').insert({
           user_id: userId,
           stripe_card_id: newCard.id,
           last4: newCard.last4,
-          exp_month: newCard.exp_month,
-          exp_year: newCard.exp_year,
-          type: type === 'physical' ? 'physical' : 'virtual',
-          status: newCard.status,
-          brand: design || 'Default'
+          brand: design || 'Default',
+          status: newCard.status
       });
+
+      const { data: feeTx } = await supabase.from('transactions').insert({
+          user_id: userId,
+          amount: feeAmount,
+          type: 'fee',
+          status: 'completed',
+          vendor_name: `${type.charAt(0).toUpperCase() + type.slice(1)} Card Issuance Fee`
+      }).select().single();
+
+      if (feeTx) {
+          await supabase.from('company_revenue').insert({
+              amount: feeAmount,
+              currency: 'GBP',
+              source_transaction_id: feeTx.id,
+              service_type: `card_issuance`
+          });
+      }
     } catch(dbErr: any) {
         console.error("DB Insert Card Error:", dbErr.message);
     }
@@ -650,6 +732,45 @@ app.post("/api/cards/:userId/issue", async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Card actions
+app.post("/api/cards/:cardId/label", async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    const { label } = req.body;
+    const stripe = getStripe();
+    await stripe.issuing.cards.update(cardId, {
+      metadata: { label }
+    });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/cards/:cardId/limit", async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    const { limit_amount } = req.body;
+    const stripe = getStripe();
+    await stripe.issuing.cards.update(cardId, {
+      spending_controls: {
+        spending_limits: [{ amount: limit_amount * 100, interval: 'monthly' }]
+      }
+    });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/cards/:cardId/transactions", async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    const stripe = getStripe();
+    const tx = await stripe.issuing.transactions.list({ card: cardId, limit: 10 });
+    res.json(tx.data);
+  } catch (err: any) { 
+    // Return empty array if not supported or error in test mode
+    res.json([]);
   }
 });
 
@@ -798,8 +919,32 @@ app.post("/api/webhooks/sumsub", async (req, res) => {
 // Wallets
 app.get("/api/wallets/:userId", async (req, res) => {
   try {
-    const { data: wallets, error } = await supabase.from('wallets').select('*').eq('user_id', req.params.userId);
-    res.json(wallets || []);
+    const { userId } = req.params;
+    let wallets: any[] = [];
+    const { data: dbWallets, error } = await supabase.from('wallets').select('*').eq('user_id', userId);
+    if (dbWallets) wallets = dbWallets;
+
+    const { data: profile } = await supabase.from('profiles').select('stripe_customer_id').eq('id', userId).single();
+    if (profile?.stripe_customer_id) {
+        try {
+            const stripe = getStripe();
+            const cashBalance = await stripe.customers.retrieveCashBalance(profile.stripe_customer_id);
+            if (cashBalance && cashBalance.available) {
+                 const codes = Object.keys(cashBalance.available);
+                 for (const currency of codes) {
+                     const idx = wallets.findIndex(w => w.currency === currency.toUpperCase());
+                     const stripeBal = cashBalance.available[currency] / 100;
+                     if (idx >= 0) {
+                         wallets[idx].balance = stripeBal;
+                     } else {
+                         wallets.push({ id: `stripe-${currency}`, user_id: userId, currency: currency.toUpperCase(), balance: stripeBal });
+                     }
+                 }
+            }
+        } catch(e) {}
+    }
+    
+    res.json(wallets);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -826,6 +971,60 @@ app.get("/api/devices/:userId", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+app.post("/api/devices/register", async (req, res) => {
+  try {
+    const { user_id, device_id, device_name } = req.body;
+    
+    // We shouldn't overwrite is_biometric_enabled here, so let's check first or use a smarter upsert.
+    // For simplicity, let's keep it mostly same but don't overwrite if not needed - actually upsert might overwrite it to false if we explicitly provide it. Let's do a select first.
+    let existing = await supabase.from('user_devices').select('*').eq('device_id', device_id).single();
+    
+    const { data, error } = await supabase.from('user_devices').upsert({
+      user_id,
+      device_id,
+      device_name,
+      fcm_token: existing.data?.fcm_token || null,
+      last_login: new Date().toISOString(),
+      is_biometric_enabled: existing.data?.is_biometric_enabled || false
+    }, { onConflict: 'device_id' });
+    
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/devices/biometric", async (req, res) => {
+  try {
+    const { device_id, is_enabled } = req.body;
+    const { data, error } = await supabase.from('user_devices').update({
+      is_biometric_enabled: is_enabled
+    }).eq('device_id', device_id);
+    
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Telegram integration for support tickets
+const TELEGRAM_BOT_TOKEN = "8825045370:AAHTZpPRM-bLd6k3gBinSpQRB-E9WgSHhhw";
+const TELEGRAM_CHAT_ID = "5195615040";
+
+async function sendTelegramMessage(text: string) {
+    try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TELEGRAM_CHAT_ID,
+                text: text,
+                parse_mode: 'Markdown'
+            })
+        });
+    } catch(e) {
+        console.error("Telegram error:", e);
+    }
+}
+
 // Support Tickets
 app.get("/api/support/:userId", async (req, res) => {
   try {
@@ -842,6 +1041,12 @@ app.post("/api/support/create", async (req, res) => {
     // Auto-create first message too
     if (data && message) {
        await supabase.from('ticket_messages').insert({ ticket_id: data.id, sender_id: user_id, message, is_admin_reply: false });
+       
+       // Get profile to include in telegram message
+       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user_id).single();
+       
+       const tgMsg = `🚨 *New Support Ticket*\n\n*User:* ${profile?.first_name || 'Unknown'} ${profile?.last_name || ''} (${profile?.email || 'N/A'})\n*Ticket ID:* \`${data.id}\`\n*Subject:* ${subject}\n*Message:* ${message}`;
+       await sendTelegramMessage(tgMsg);
     }
     res.json({ success: true, data });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -851,6 +1056,24 @@ app.get("/api/support/:ticketId/messages", async (req, res) => {
   try {
     const { data, error } = await supabase.from('ticket_messages').select('*').eq('ticket_id', req.params.ticketId).order('created_at', { ascending: true });
     res.json(data || []);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/support/:ticketId/reply", async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { user_id, message } = req.body;
+    
+    const { data, error } = await supabase.from('ticket_messages').insert({ ticket_id: ticketId, sender_id: user_id, message, is_admin_reply: false }).select().single();
+    
+    // Send to Telegram
+    if (data && message) {
+       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user_id).single();
+       const tgMsg = `💬 *Ticket Reply*\n\n*User:* ${profile?.first_name || 'Unknown'} ${profile?.last_name || ''}\n*Ticket ID:* \`${ticketId}\`\n*Message:* ${message}`;
+       await sendTelegramMessage(tgMsg);
+    }
+    
+    res.json({ success: true, data });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -866,17 +1089,46 @@ app.post("/api/withdrawals/create", async (req, res) => {
   try {
     const { user_id, amount, currency, bank_details } = req.body;
     
+    const feeAmount = 2.00;
+    const totalDeduction = amount + feeAmount;
+
     // Deduct from stripe balance internally (assuming stripe balances are in GBP)
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', user_id).single();
     if(profile && profile.stripe_customer_id) {
        await getStripe().customers.createBalanceTransaction(profile.stripe_customer_id, {
-         amount: Math.round(amount * 100), // Positive means charge
+         amount: Math.round(totalDeduction * 100), // Positive means charge
          currency: currency.toLowerCase(),
-         description: 'Withdrawal to Bank Account'
+         description: 'Withdrawal to Bank Account + Fee'
        });
     }
 
-    const { data, error } = await supabase.from('withdrawals').insert({ user_id, amount, currency, bank_details, fee: 0, status: 'pending' }).select().single();
+    const { data, error } = await supabase.from('withdrawals').insert({ user_id, amount, currency, bank_details, fee: feeAmount, status: 'pending' }).select().single();
+    
+    if (data) {
+        await supabase.from('notifications').insert({
+            user_id: user_id,
+            title: 'Withdrawal Initiated',
+            body: `Your withdrawal of £${amount.toFixed(2)} to ${bank_details.account_name} is processing.`,
+            type: 'system',
+            is_read: false
+        });
+        const { data: feeTx } = await supabase.from('transactions').insert({
+            user_id: user_id,
+            amount: feeAmount,
+            type: 'fee',
+            status: 'completed',
+            vendor_name: 'Withdrawal Fee'
+        }).select().single();
+        
+        if (feeTx) {
+            await supabase.from('company_revenue').insert({
+                amount: feeAmount,
+                currency: currency,
+                source_transaction_id: feeTx.id,
+                service_type: 'withdrawal'
+            });
+        }
+    }
     res.json({ success: true, data });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -907,6 +1159,15 @@ app.post("/api/gift_cards/create", async (req, res) => {
     }
 
     const { data, error } = await supabase.from('gift_cards').insert({ sender_id, code, amount, currency, expiry_date, is_redeemed: false }).select().single();
+    if (data) {
+        await supabase.from('notifications').insert({
+            user_id: sender_id,
+            title: 'Gift Card Created',
+            body: `You generated a £${amount} gift card.`,
+            type: 'system',
+            is_read: false
+        });
+    }
     res.json({ success: true, data });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -927,6 +1188,14 @@ app.post("/api/gift_cards/redeem", async (req, res) => {
          amount: -Math.round(card.amount * 100),
          currency: card.currency.toLowerCase(),
          description: 'Gift Card Redeemed'
+       });
+
+       await supabase.from('notifications').insert({
+           user_id: user_id,
+           title: 'Gift Card Redeemed',
+           body: `You successfully redeemed a £${card.amount} gift card.`,
+           type: 'credit',
+           is_read: false
        });
     }
 
@@ -956,10 +1225,52 @@ app.post("/api/topup_orders/create", async (req, res) => {
     }
 
     const { data, error } = await supabase.from('topup_orders').insert({ user_id, operator_name, target_number, amount_spent, currency, service_type, status: 'completed' }).select().single();
+    if (data) {
+        await supabase.from('notifications').insert({
+            user_id: user_id,
+            title: 'Mobile Top-up Successful',
+            body: `Successfully topped up ${target_number} via ${operator_name}.`,
+            type: 'system',
+            is_read: false
+        });
+    }
     res.json({ success: true, data });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// OTP Codes
+app.post("/api/otp/generate", async (req, res) => {
+  try {
+    const { user_id, type } = req.body;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    
+    const { data, error } = await supabase.from('otp_codes').insert({ user_id, code, type, expires_at }).select().single();
+    if (error) throw error;
+    res.json({ success: true, message: 'OTP generated', data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/otp/verify", async (req, res) => {
+  try {
+    const { user_id, code, type } = req.body;
+    const { data: otp, error } = await supabase.from('otp_codes')
+      .select('*')
+      .eq('user_id', user_id)
+      .eq('code', code)
+      .eq('type', type)
+      .gte('expires_at', new Date().toISOString())
+      .single();
+      
+    if (error || !otp) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+    
+    await supabase.from('otp_codes').delete().eq('id', otp.id);
+    
+    res.json({ success: true, message: 'OTP verified' });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 // Setup Vite Development Middleware
 async function startServer() {

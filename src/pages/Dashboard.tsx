@@ -1,25 +1,28 @@
 import { useEffect, useState } from 'react';
-import { getDashboard } from '../lib/api';
+import { getDashboard, getCachedData } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 
-import { ArrowDownLeft, ArrowUpRight, Plus, ScanLine, Wallet, User, CreditCard, ArrowDownRight, Gift, Headphones, Bell } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Plus, Wallet, Gift, Headphones, Bell, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function Dashboard() {
-  const [data, setData] = useState<any>(null);
   const navigate = useNavigate();
   const userId = localStorage.getItem('userId');
+  
+  // Initialize with cached data if available
+  const [data, setData] = useState<any>(() => userId ? getCachedData(`/api/dashboard/${userId}`) : null);
 
   useEffect(() => {
     if (!userId) {
       navigate('/');
       return;
     }
+    // Fetch anyway to get background updates if cache misses or we want fresh data
     getDashboard(userId).then(res => {
       setData(res);
     }).catch(err => {
       console.error(err);
-      setData({ error: "Network or server error fetching dashboard. " + err.message });
+      if (!data) setData({ error: "Network or server error fetching dashboard. " + err.message });
     });
   }, [userId, navigate]);
 
@@ -36,18 +39,26 @@ export default function Dashboard() {
     );
   }
 
-  const { user, balance, transactions, currencies } = data;
+  const { user, balance, transactions, wallets } = data;
+
+  const defaultWallets = [
+    { currency: 'GBP', symbolChar: '£', balance: 0 },
+    { currency: 'USD', symbolChar: '$', balance: 0 },
+    { currency: 'EUR', symbolChar: '€', balance: 0 },
+  ];
+
+  const displayWallets = defaultWallets.map(dw => {
+    const fw = wallets?.find((w:any) => w.currency === dw.currency);
+    return fw ? { ...dw, balance: fw.balance } : dw;
+  });
   const isKycApproved = user.kycStatus === 'approved';
 
   const quickActions = [
     { name: 'Add Money', icon: Plus, color: 'text-emerald-400', bg: 'bg-emerald-400/20', path: '/topup', locked: !isKycApproved },
     { name: 'Send', icon: ArrowUpRight, color: 'text-slate-200', bg: 'bg-slate-700/50', path: '/transfer', locked: !isKycApproved },
-    { name: 'Withdraw', icon: ArrowDownRight, color: 'text-slate-200', bg: 'bg-slate-700/50', path: '/withdraw', locked: !isKycApproved },
     { name: 'Gift Cards', icon: Gift, color: 'text-rose-400', bg: 'bg-rose-500/20', path: '/giftcards', locked: !isKycApproved },
-    { name: 'My Cards', icon: CreditCard, color: 'text-slate-200', bg: 'bg-slate-700/50', path: '/cards', locked: !isKycApproved },
     { name: 'Support', icon: Headphones, color: 'text-sky-400', bg: 'bg-sky-500/20', path: '/support', locked: false },
-    { name: 'Mobile', icon: ScanLine, color: 'text-amber-400', bg: 'bg-amber-500/20', path: '/topup', locked: false },
-    { name: 'Profile', icon: User, color: 'text-slate-200', bg: 'bg-slate-700/50', path: '/profile', locked: false },
+    { name: 'Mobile Topup', icon: Smartphone, color: 'text-amber-400', bg: 'bg-amber-500/20', path: '/topup', locked: false, comingSoon: true },
   ];
 
   const formatDate = (dateStr: string) => {
@@ -56,6 +67,7 @@ export default function Dashboard() {
   };
 
   const handleActionClick = (action: any) => {
+     if (action.comingSoon) return;
      if (action.locked) {
         navigate('/profile');
      } else {
@@ -125,7 +137,7 @@ export default function Dashboard() {
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.1 }}
+              transition={{ duration: 0.2, delay: idx * 0.05 }}
               key={action.name} 
               className="flex flex-col items-center gap-2 cursor-pointer group"
               onClick={() => handleActionClick(action)}
@@ -137,34 +149,39 @@ export default function Dashboard() {
                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                   </div>
                 )}
+                {action.comingSoon && (
+                  <div className="absolute -bottom-2 -left-2 -right-2 bg-amber-500 text-slate-900 text-[8px] font-bold px-1 py-0.5 rounded-full z-10 text-center shadow-lg uppercase tracking-wide">
+                    Coming Soon
+                  </div>
+                )}
               </div>
-              <span className="text-[11px] font-medium text-slate-400">{action.name}</span>
+              <span className="text-[10px] font-medium text-slate-400 text-center leading-tight whitespace-normal break-words px-1 min-h-[28px] flex items-center">{action.name}</span>
             </motion.div>
           ))}
         </div>
 
-        {/* Currencies */}
+        {/* Currencies / Balances */}
         <div className="pt-2">
           <div className="flex justify-between items-end mb-4">
-            <h3 className="text-lg font-semibold text-slate-200">Currencies</h3>
+            <h3 className="text-lg font-semibold text-slate-200">Balances</h3>
           </div>
           <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 hide-scrollbar snap-x">
-             {currencies?.map((curr: any, idx: number) => (
+             {displayWallets.map((curr: any, idx: number) => (
                <motion.div 
-                 key={curr.id}
-                 initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 * (idx + 1) }}
+                 key={curr.currency}
+                 initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2, delay: 0.05 * (idx + 1) }}
                  className="min-w-[140px] snap-center glass-card p-4 rounded-2xl flex flex-col gap-3 shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
                >
                   <div className="flex justify-between items-center">
                     <div className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center font-bold">
                       {curr.symbolChar}
                     </div>
-                    <span className="text-xs text-slate-400 font-medium tracking-wider">{curr.symbol}</span>
+                    <span className="text-xs text-slate-400 font-medium tracking-wider">{curr.currency}</span>
                   </div>
                   <div>
-                    <div className="text-lg font-semibold text-slate-100">{curr.rate.toFixed(2)}</div>
-                    <div className={`text-[10px] uppercase mt-0.5 ${curr.change >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {curr.change > 0 ? '+' : ''}{curr.change}%
+                    <div className="text-lg font-semibold text-slate-100">{Number(curr.balance).toFixed(2)}</div>
+                    <div className={`text-[10px] uppercase mt-0.5 text-emerald-400`}>
+                      Active
                     </div>
                   </div>
                </motion.div>
@@ -179,11 +196,11 @@ export default function Dashboard() {
             <button className="text-xs text-emerald-500 font-medium">See all</button>
           </div>
           <div className="space-y-3">
-            {transactions?.map((tx: any, idx: number) => (
+            {transactions?.length > 0 ? transactions.map((tx: any, idx: number) => (
               <motion.div 
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2 + idx * 0.1 }}
+                transition={{ duration: 0.2, delay: 0.1 + idx * 0.05 }}
                 key={tx.id} 
                 className="flex items-center justify-between p-4 glass-card rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer"
               >
@@ -200,7 +217,55 @@ export default function Dashboard() {
                   {tx.amount > 0 ? '+' : ''}{tx.amount.toFixed(2)}
                 </div>
               </motion.div>
-            ))}
+            )) : (
+              <div className="text-center py-6 text-slate-500 text-sm glass-card rounded-2xl">
+                 No transactions yet
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Economic News */}
+        <div className="pt-8">
+          <div className="flex justify-between items-end mb-4">
+            <h3 className="text-lg font-semibold text-slate-200">Market News</h3>
+          </div>
+          <div className="space-y-4">
+            <div className="flex gap-4 p-4 glass-card rounded-2xl">
+              <div className="w-16 h-16 rounded-xl bg-slate-800 flex-shrink-0 bg-cover bg-center" style={{backgroundImage: 'url(https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?q=80&w=200&auto=format&fit=crop)'}}></div>
+              <div>
+                <h4 className="font-semibold text-sm text-slate-200 leading-tight mb-1">Global markets surge as inflation cools down</h4>
+                <p className="text-xs text-slate-400 line-clamp-2">Central banks consider pausing rate hikes stringently as recent data shows promising signs of economic stability.</p>
+                <span className="text-[10px] text-emerald-500 font-medium mt-1 inline-block">2 hours ago</span>
+              </div>
+            </div>
+            <div className="flex gap-4 p-4 glass-card rounded-2xl">
+              <div className="w-16 h-16 rounded-xl bg-slate-800 flex-shrink-0 bg-cover bg-center" style={{backgroundImage: 'url(https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?q=80&w=200&auto=format&fit=crop)'}}></div>
+              <div>
+                <h4 className="font-semibold text-sm text-slate-200 leading-tight mb-1">Tech stocks rally despite strict regulations</h4>
+                <p className="text-xs text-slate-400 line-clamp-2">Major tech giants report strong quarterly earnings, overshadowing concerns about impending antitrust inquiries.</p>
+                <span className="text-[10px] text-emerald-500 font-medium mt-1 inline-block">4 hours ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* About SafiPay */}
+        <div className="pt-8 pb-4">
+          <div className="p-6 glass-card rounded-3xl relative overflow-hidden flex flex-col items-center text-center">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-sky-500/10 rounded-full blur-2xl"></div>
+            
+            <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center mb-4 border border-slate-700/50 shadow-inner z-10">
+              <div className="w-6 h-6 bg-gradient-to-br from-emerald-400 to-sky-500 rounded-xl transform rotate-45"></div>
+            </div>
+            <h3 className="text-xl font-bold text-slate-100 mb-2 z-10">Welcome to SafiPay</h3>
+            <p className="text-sm text-slate-400 mb-4 z-10 leading-relaxed">
+              SafiPay is your secure and borderless digital Bank. Experience lightning fast transactions, seamless top-ups, and full control over your physical and virtual cards.
+            </p>
+            <div className="text-xs text-slate-500 z-10">
+              © {new Date().getFullYear()} SafiPay Inc. All rights reserved.
+            </div>
           </div>
         </div>
       </div>

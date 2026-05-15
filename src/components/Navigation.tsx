@@ -12,7 +12,7 @@ export default function Navigation() {
 
   return (
     <div className="absolute bottom-0 left-0 w-full flex justify-center z-50">
-      <div className="w-full glass-card border-t border-slate-700/50 rounded-t-3xl px-6 py-4 flex justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl bg-slate-900/80 pb-safe">
+      <div className="w-full max-w-md mx-auto glass-card border-t border-slate-700/50 rounded-t-3xl px-6 py-4 flex justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.3)] backdrop-blur-xl bg-slate-900/90 pb-safe">
         {tabs.map((tab) => (
           <NavLink
             key={tab.name}

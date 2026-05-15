@@ -52,9 +52,42 @@ export async function registerUser(email: string, password?: string, firstName?:
   return { id: data.user.id, ...data.user };
 }
 
+const apiCache: Record<string, { data: any, timestamp: number, promise?: Promise<any> }> = {};
+
+export function getCachedData(url: string) {
+  if (apiCache[url] && (Date.now() - apiCache[url].timestamp < 300000)) { // 5 mins
+    return apiCache[url].data;
+  }
+  return null;
+}
+
+async function fetchWithCache(url: string, ttlMs = 30000) {
+  const now = Date.now();
+  
+  if (apiCache[url]) {
+      if (now - apiCache[url].timestamp < ttlMs) {
+          return apiCache[url].data;
+      }
+      if (apiCache[url].promise) {
+          return apiCache[url].promise;
+      }
+  }
+
+  const promise = fetch(url).then(res => res.json()).then(data => {
+      apiCache[url] = { data, timestamp: Date.now() };
+      return data;
+  }).catch(err => {
+      // If error, keeping the stale data might be better or throwing
+      if (apiCache[url]?.data) return apiCache[url].data;
+      throw err;
+  });
+
+  apiCache[url] = { ...apiCache[url], promise };
+  return promise;
+}
+
 export async function getProfile(userId: string) {
-  const res = await fetch(`/api/profile/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/profile/${userId}`);
 }
 
 export async function updateProfile(userId: string, data: any) {
@@ -63,17 +96,19 @@ export async function updateProfile(userId: string, data: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  return res.json();
+  const updated = await res.json();
+  if (!updated.error) {
+     apiCache[`/api/profile/${userId}`] = { data: updated, timestamp: Date.now() };
+  }
+  return updated;
 }
 
 export async function getDashboard(userId: string) {
-  const res = await fetch(`/api/dashboard/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/dashboard/${userId}`, 10000); // 10s TTL for dashboard
 }
 
 export async function getCards(userId: string) {
-  const res = await fetch(`/api/cards/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/cards/${userId}`, 10000); // 10s TTL
 }
 
 export async function toggleCard(userId: string, cardId: string, status: string) {
@@ -119,14 +154,43 @@ export async function completeKyc(userId: string) {
 
 // --- NEW APPLET ENDPOINTS ---
 
-export async function getWallets(userId: string) {
-  const res = await fetch(`/api/wallets/${userId}`);
+export async function registerDevice(userId: string) {
+  let deviceId = localStorage.getItem('deviceId');
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem('deviceId', deviceId);
+  }
+  
+  const deviceName = navigator.userAgent;
+  
+  const res = await fetch(`/api/devices/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, device_id: deviceId, device_name: deviceName })
+  });
+  
   return res.json();
 }
 
-export async function getNotifications(userId: string) {
-  const res = await fetch(`/api/notifications/${userId}`);
+export async function updateBiometricStatus(isEnabled: boolean) {
+  const deviceId = localStorage.getItem('deviceId');
+  if (!deviceId) return { error: 'No device ID' };
+  
+  const res = await fetch(`/api/devices/biometric`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: deviceId, is_enabled: isEnabled })
+  });
+  
   return res.json();
+}
+
+export async function getWallets(userId: string) {
+  return fetchWithCache(`/api/wallets/${userId}`, 10000);
+}
+
+export async function getNotifications(userId: string) {
+  return fetchWithCache(`/api/notifications/${userId}`, 10000);
 }
 
 export async function markNotificationRead(id: string) {
@@ -135,13 +199,11 @@ export async function markNotificationRead(id: string) {
 }
 
 export async function getDevices(userId: string) {
-  const res = await fetch(`/api/devices/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/devices/${userId}`);
 }
 
 export async function getSupportTickets(userId: string) {
-  const res = await fetch(`/api/support/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/support/${userId}`, 10000);
 }
 
 export async function createSupportTicket(data: any) {
@@ -154,13 +216,11 @@ export async function createSupportTicket(data: any) {
 }
 
 export async function getTicketMessages(ticketId: string) {
-  const res = await fetch(`/api/support/${ticketId}/messages`);
-  return res.json();
+  return fetchWithCache(`/api/support/${ticketId}/messages`, 5000);
 }
 
 export async function getWithdrawals(userId: string) {
-  const res = await fetch(`/api/withdrawals/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/withdrawals/${userId}`, 10000);
 }
 
 export async function createWithdrawal(data: any) {
@@ -173,8 +233,7 @@ export async function createWithdrawal(data: any) {
 }
 
 export async function getGiftCards(userId: string) {
-  const res = await fetch(`/api/gift_cards/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/gift_cards/${userId}`, 10000);
 }
 
 export async function createGiftCard(data: any) {
@@ -196,8 +255,7 @@ export async function redeemGiftCard(data: any) {
 }
 
 export async function getTopupOrders(userId: string) {
-  const res = await fetch(`/api/topup_orders/${userId}`);
-  return res.json();
+  return fetchWithCache(`/api/topup_orders/${userId}`, 10000);
 }
 
 export async function createTopupOrder(data: any) {
@@ -205,6 +263,24 @@ export async function createTopupOrder(data: any) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
+export async function generateOtp(userId: string, type: string) {
+  const res = await fetch(`/api/otp/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, type })
+  });
+  return res.json();
+}
+
+export async function verifyOtp(userId: string, code: string, type: string) {
+  const res = await fetch(`/api/otp/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, code, type })
   });
   return res.json();
 }

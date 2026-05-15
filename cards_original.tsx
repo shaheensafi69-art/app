@@ -7,10 +7,10 @@ import { motion, AnimatePresence } from 'motion/react';
 export const CARD_DESIGNS: Record<string, any> = {
   'Galaxy Black': {
     name: 'Galaxy Black',
-    bgClass: "bg-slate-900",
+    bgClass: "bg-slate-950",
     overlay: (
        <>
-         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900"></div>
+         <div className="absolute inset-0 bg-gradient-to-br from-black via-indigo-950/80 to-black"></div>
          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-fuchsia-600/30 rounded-full blur-[70px] pointer-events-none"></div>
          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/30 rounded-full blur-[60px] pointer-events-none"></div>
          <div className="absolute inset-0 opacity-40 mix-blend-screen" style={{ backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.8) 1px, transparent 1px)', backgroundSize: '20px 24px', backgroundPosition: '0 0' }}></div>
@@ -101,7 +101,6 @@ export default function Cards() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
   const [addingStep, setAddingStep] = useState<'type' | 'design'>('type');
-  const [selectedType, setSelectedType] = useState<'virtual' | 'physical'>('virtual');
   const [selectedDesign, setSelectedDesign] = useState<string>('Galaxy Black');
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
@@ -109,14 +108,6 @@ export default function Cards() {
   const [viewingPin, setViewingPin] = useState(false);
   const [interactionMessage, setInteractionMessage] = useState<{title: string, desc: string} | null>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
-
-  // New states for interactions
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [newLabel, setNewLabel] = useState('');
-  const [viewingLimits, setViewingLimits] = useState(false);
-  const [newLimit, setNewLimit] = useState('');
-  const [viewingTransactions, setViewingTransactions] = useState(false);
-  const [cardTransactions, setCardTransactions] = useState<any[]>([]);
   
   const handleInteraction = (title: string, desc: string) => {
     setInteractionMessage({ title, desc });
@@ -176,23 +167,14 @@ export default function Cards() {
   };
 
   const handleIssueCard = async (type: 'virtual' | 'physical') => {
-    if (addingStep === 'type') {
-       setSelectedType(type);
-       setAddingStep('design');
-       return;
-    }
-
     if (type === 'physical') {
        handleInteraction('Coming Soon', 'Physical cards will be available to order very soon. Stay tuned!');
        setIsAdding(false);
-       setAddingStep('type');
        return;
     }
-
-    if (type === 'virtual' && cards.filter(c => c.type === 'virtual').length >= 3) {
-       handleInteraction('Limit Reached', 'You have reached the maximum limit of 3 virtual cards.');
-       setIsAdding(false);
-       setAddingStep('type');
+    
+    if (addingStep === 'type') {
+       setAddingStep('design');
        return;
     }
 
@@ -215,50 +197,6 @@ export default function Cards() {
     setIssuing(false);
   }
 
-  const handleLoadTransactions = async () => {
-    if (!activeCard) return;
-    setViewingTransactions(true);
-    setCardTransactions([]);
-    try {
-       const res = await fetch(`/api/cards/${activeCard.stripeCardId}/transactions`);
-       const data = await res.json();
-       setCardTransactions(data || []);
-    } catch(err) { console.error(err); }
-  }
-
-  const handleUpdateLimit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCard || !newLimit) return;
-    try {
-       await fetch(`/api/cards/${activeCard.stripeCardId}/limit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit_amount: Number(newLimit) })
-       });
-       setViewingLimits(false);
-       setNewLimit('');
-       handleInteraction('Limit Updated', 'The card limit was successfully updated on Stripe.');
-    } catch(err) { console.error(err); }
-  }
-
-  const handleUpdateLabel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCard) return;
-    try {
-      await fetch(`/api/cards/${activeCard.stripeCardId}/label`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: newLabel })
-      });
-      const newCards = [...cards];
-      newCards[activeIndex] = { ...activeCard, label: newLabel || activeCard.type };
-      setCards(newCards);
-      setEditingLabel(false);
-      setNewLabel('');
-      handleInteraction('Label Updated', 'Card label was successfully updated.');
-    } catch(err) { console.error(err); }
-  }
-
   const handleDeleteCard = async () => {
     if (!activeCard) return;
     try {
@@ -272,152 +210,115 @@ export default function Cards() {
   };
 
   return (
-    <div className="min-h-[100dvh] pb-24 flex flex-col items-center w-full">
-      <div className="w-full max-w-md px-6 pt-2 space-y-8">
+    <div className="min-h-[100dvh] pb-24 flex flex-col items-center">
+      <div className="w-full max-w-md p-6 space-y-8">
         
-        <header className="flex justify-between items-center">
+        <header className="pt-2 flex justify-between items-center">
           <h1 className="text-xl font-semibold">Your Cards</h1>
-          <button 
-             onClick={() => setIsAdding(true)}
-             className="w-10 h-10 rounded-full glass-card flex items-center justify-center text-emerald-400 border-emerald-500/30">
-             <PlusIcon className="w-5 h-5" />
-          </button>
+          {cards.length < 3 && (
+            <button 
+               onClick={() => setIsAdding(true)}
+               className="w-10 h-10 rounded-full glass-card flex items-center justify-center text-emerald-400 border-emerald-500/30">
+               <PlusIcon className="w-5 h-5" />
+            </button>
+          )}
         </header>
 
-      </div>
-
-      <div className="w-full mt-4">
         {activeCard ? (
-          <div className="flex flex-col items-center w-full overflow-hidden">
-            <div 
-               className="flex w-full overflow-x-auto snap-x snap-mandatory hide-scrollbar perspective-1000 items-center pb-8 pt-4"
-               style={{ scrollSnapType: 'x mandatory', gap: '1rem', paddingLeft: 'calc(50% - min(42.5vw, 10rem))', paddingRight: 'calc(50% - min(42.5vw, 10rem))' }}
-               onScroll={(e) => {
-                 const target = e.target as HTMLElement;
-                 const scrollLeft = target.scrollLeft;
-                 const centerPosition = scrollLeft + target.offsetWidth / 2;
-                 
-                 let closestIndex = 0;
-                 let minDistance = Infinity;
-                 
-                 Array.from(target.children).forEach((child, index) => {
-                    const childEl = child as HTMLElement;
-                    const childCenter = childEl.offsetLeft + childEl.offsetWidth / 2 - target.offsetLeft;
-                    const distance = Math.abs(centerPosition - childCenter);
-                    if (distance < minDistance) {
-                       minDistance = distance;
-                       closestIndex = index;
-                    }
-                 });
-                 
-                 if (closestIndex !== activeIndex) {
-                   setActiveIndex(closestIndex);
-                   setFlipped(false);
-                   setShowDetails(false);
-                 }
-               }}
-            >
-              {cards.map((card, i) => {
-                const design = CARD_DESIGNS[card.design] || CARD_DESIGNS['Galaxy Black'];
-                return (
-                  <div key={card.id} className={`w-[85vw] max-w-[20rem] shrink-0 snap-center relative h-56 perspective-1000 transition-all duration-300 ${activeIndex === i ? 'scale-100 opacity-100' : 'scale-[0.9] opacity-60'}`} onClick={() => { if(activeIndex===i) setFlipped(!flipped); else { const container=document.querySelector('.snap-mandatory') as HTMLElement; if(container){ const child = container.children[i] as HTMLElement; if(child) { container.scrollTo({left: child.offsetLeft - container.offsetLeft - (container.offsetWidth / 2) + (child.offsetWidth / 2), behavior: 'smooth'}); } } } }}>
-                    <div 
-                      className="w-full h-full relative preserve-3d cursor-pointer transition-transform duration-700"
-                      style={{ transform: (activeIndex === i && flipped) ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
-                    >
-                      {/* Front of Card */}
-                      <div className={`absolute w-full h-full backface-hidden rounded-[2rem] p-6 border flex flex-col justify-between overflow-hidden shadow-2xl border-white/10 ${design.bgClass}`}>
-                        {design.overlay}
-                        
-                        {/* Huge cut-off VISA logo */}
-                        <div className={`absolute -right-4 -bottom-6 text-[120px] font-black italic pointer-events-none z-0 tracking-tighter leading-none opacity-40 mix-blend-overlay ${design.textColor}`}>
-                          VISA
-                        </div>
+          <div className="flex flex-col items-center w-full">
+            <div className="relative h-56 w-full perspective-1000 mt-6 group" onClick={() => setFlipped(!flipped)}>
+              <AnimatePresence mode="wait">
+              <motion.div
+                key={activeIndex}
+                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1, rotateY: flipped ? 180 : 0 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95 }}
+                className="w-full h-full relative preserve-3d cursor-pointer"
+                transition={{ duration: 0.5, type: "spring", bounce: 0.3 }}
+              >
+                {/* Front of Card */}
+                <div className={`absolute w-full h-full backface-hidden rounded-[2rem] p-6 border flex flex-col justify-between overflow-hidden shadow-2xl border-white/10 ${activeDesign.bgClass}`}>
+                  {activeDesign.overlay}
+                  
+                  {/* Huge cut-off VISA logo */}
+                  <div className={`absolute -right-8 -bottom-10 text-[140px] font-black italic pointer-events-none z-0 tracking-tighter leading-none opacity-10 mix-blend-overlay ${activeDesign.textColor}`}>
+                    VISA
+                  </div>
 
-                        {card.status === 'inactive' && (
-                           <>
-                              <div className="absolute inset-0 bg-white/20 backdrop-blur-[4px] pointer-events-none z-10 border-[0.5px] border-white/50"></div>
-                           </>
-                        )}
-                        
-                        <div className="flex justify-between items-start relative z-20">
-                          <img 
-                            src="/logo.png" 
-                            alt="SafiPay" 
-                            className={`h-12 object-contain drop-shadow-md ${card.status === 'active' ? '' : 'grayscale opacity-60'}`} 
-                          />
-                          <WifiIcon className={`w-8 h-8 rotate-90 opacity-80 ${card.status === 'active' ? design.textColor : 'text-slate-800'}`} style={{ filter: card.status === 'active' ? design.filter : 'none' }} />
-                        </div>
+                  {activeCard.status === 'inactive' && (
+                     <>
+                        <div className="absolute inset-0 bg-white/20 backdrop-blur-[4px] pointer-events-none z-10 border-[0.5px] border-white/50"></div>
+                     </>
+                  )}
+                  
+                  <div className="flex justify-between items-start relative z-20">
+                    <img 
+                      src="/logo.png" 
+                      alt="SafiPay" 
+                      className={`h-12 object-contain drop-shadow-md ${activeCard.status === 'active' ? '' : 'grayscale opacity-60'}`} 
+                    />
+                    <WifiIcon className={`w-8 h-8 rotate-90 opacity-80 ${activeCard.status === 'active' ? activeDesign.textColor : 'text-slate-800'}`} style={{ filter: activeCard.status === 'active' ? activeDesign.filter : 'none' }} />
+                  </div>
 
-                        {card.status === 'inactive' && (
-                           <div className="absolute inset-0 flex flex-col items-center justify-center z-30 pb-4">
-                              <Snowflake className="w-10 h-10 text-slate-800" strokeWidth={1.5} />
-                              <span className="text-slate-800 font-bold mt-2 tracking-wide uppercase text-sm drop-shadow-sm">Frozen</span>
-                           </div>
-                        )}
-                        
-                        <div className="relative z-20">
-                          <div className={`text-[10px] mb-1.5 uppercase tracking-widest font-bold flex items-center gap-1.5 opacity-90 ${card.status === 'active' ? design.textColor : 'text-slate-800 drop-shadow-sm'}`}>
-                             {card.type === 'physical' ? <CardIcon className="w-3.5 h-3.5"/> : <MonitorSmartphone className="w-3.5 h-3.5"/>}
-                             {card.label || card.type}
-                          </div>
-                          <div className={`text-lg sm:text-xl font-mono tracking-[0.16em] flex justify-between items-end gap-2 mt-1 ${card.status === 'active' ? design.textColor : 'text-slate-800 drop-shadow-sm'}`} style={{ filter: card.status === 'active' ? design.filter : 'none' }}>
-                            <span className="whitespace-nowrap">**** **** **** {card.last4}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Back of Card */}
-                      <div className="absolute w-full h-full backface-hidden rounded-[2rem] bg-slate-800 border border-slate-700 shadow-2xl overflow-hidden" style={{ transform: 'rotateY(180deg)' }}>
-                        <div className="w-full h-12 bg-black/80 mt-6"></div>
-                        <div className="p-6 pt-4">
-                          <div className="w-full bg-slate-700/50 rounded p-2 mb-4 flex justify-between items-center h-10">
-                            <span className="font-mono text-[13px] tracking-widest text-slate-300">
-                              {showDetails ? `4124 9381 2911 ${card.last4}` : '•••• •••• •••• ••••'}
-                            </span>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails); }}
-                              className="text-emerald-500 px-2 py-1 bg-emerald-500/10 rounded text-xs font-medium"
-                            >
-                              {showDetails ? 'HIDE' : 'SHOW'}
-                            </button>
-                          </div>
-                          <div className="flex gap-4">
-                             <div className="flex-[2]">
-                                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Expiry Date</div>
-                                <div className="bg-slate-700/50 rounded p-2 h-8 font-mono text-sm text-slate-300">
-                                  {showDetails ? `${card.expMonth?.toString().padStart(2, '0') || '12'}/${card.expYear?.toString().slice(-2) || '28'}` : '•• / ••'}
-                                </div>
-                             </div>
-                             <div className="flex-1">
-                                <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">CVV</div>
-                                <div className="bg-slate-700/50 rounded p-2 h-8 font-mono text-sm text-slate-300">
-                                  {showDetails ? '203' : '•••'}
-                                </div>
-                             </div>
-                          </div>
-                        </div>
-                      </div>
+                  {activeCard.status === 'inactive' && (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center z-30 pb-4">
+                        <Snowflake className="w-10 h-10 text-slate-800" strokeWidth={1.5} />
+                        <span className="text-slate-800 font-bold mt-2 tracking-wide uppercase text-sm drop-shadow-sm">Frozen</span>
+                     </div>
+                  )}
+                  
+                  <div className="relative z-20">
+                    <div className={`text-[10.px] mb-1.5 uppercase tracking-widest font-bold flex items-center gap-1.5 opacity-90 ${activeCard.status === 'active' ? activeDesign.textColor : 'text-slate-800 drop-shadow-sm'}`}>
+                       {activeCard.type === 'physical' ? <CardIcon className="w-3.5 h-3.5"/> : <MonitorSmartphone className="w-3.5 h-3.5"/>}
+                       {activeCard.type}
+                    </div>
+                    <div className={`text-lg sm:text-xl font-mono tracking-[0.16em] flex justify-between items-end gap-2 mt-1 ${activeCard.status === 'active' ? activeDesign.textColor : 'text-slate-800 drop-shadow-sm'}`} style={{ filter: activeCard.status === 'active' ? activeDesign.filter : 'none' }}>
+                      <span className="whitespace-nowrap">**** **** **** {activeCard.last4}</span>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+
+                {/* Back of Card */}
+                <div className="absolute w-full h-full backface-hidden rounded-[2rem] bg-slate-800 border border-slate-700 shadow-2xl overflow-hidden" style={{ transform: 'rotateY(180deg)' }}>
+                  <div className="w-full h-12 bg-black/80 mt-6"></div>
+                  <div className="p-6 pt-4">
+                    <div className="w-full bg-slate-700/50 rounded p-2 mb-4 flex justify-between items-center h-10">
+                      <span className="font-mono text-[13px] tracking-widest text-slate-300">
+                        {showDetails ? `4124 9381 2911 ${activeCard.last4}` : '•••• •••• •••• ••••'}
+                      </span>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setShowDetails(!showDetails); }}
+                        className="text-emerald-500 px-2 py-1 bg-emerald-500/10 rounded text-xs font-medium"
+                      >
+                        {showDetails ? 'HIDE' : 'SHOW'}
+                      </button>
+                    </div>
+                    <div className="flex gap-4">
+                       <div className="flex-[2]">
+                          <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">Expiry Date</div>
+                          <div className="bg-slate-700/50 rounded p-2 h-8 font-mono text-sm text-slate-300">
+                            {showDetails ? `${activeCard.expMonth?.toString().padStart(2, '0') || '12'}/${activeCard.expYear?.toString().slice(-2) || '28'}` : '•• / ••'}
+                          </div>
+                       </div>
+                       <div className="flex-1">
+                          <div className="text-[10px] text-slate-500 uppercase font-bold mb-1">CVV</div>
+                          <div className="bg-slate-700/50 rounded p-2 h-8 font-mono text-sm text-slate-300">
+                            {showDetails ? '203' : '•••'}
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+              </AnimatePresence>
             </div>
             
             {cards.length > 1 && (
-              <div className="flex gap-2 justify-center mt-2">
+              <div className="flex gap-2 justify-center mt-6">
                  {cards.map((_, i) => (
                     <button 
                        key={i} 
-                       onClick={() => {
-                          const container = document.querySelector('.snap-mandatory') as HTMLElement;
-                          if(container) {
-                             const child = container.children[i] as HTMLElement;
-                             if(child) {
-                               container.scrollTo({ left: child.offsetLeft - container.offsetLeft - (container.offsetWidth / 2) + (child.offsetWidth / 2), behavior: 'smooth' }); 
-                             }
-                          }
-                       }}
+                       onClick={() => { setActiveIndex(i); setFlipped(false); setShowDetails(false); }}
                        className={`h-2 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-emerald-500 w-6' : 'bg-slate-700 w-2'}`}
                     />
                  ))}
@@ -425,7 +326,7 @@ export default function Cards() {
             )}
             
             <div className="text-center font-bold text-sm text-slate-200 mt-6 mb-2 flex items-center justify-center gap-2">
-               {activeCard.type === 'physical' ? 'Physical card' : (activeCard.label || 'Virtual card')} 
+               {activeCard.type === 'physical' ? 'Physical card' : 'Virtual card'} 
                <span className="opacity-60 font-mono font-medium tracking-widest text-xs">•••• {activeCard.last4}</span>
             </div>
 
@@ -434,17 +335,13 @@ export default function Cards() {
             </div>
           </div>
         ) : (
-          <div className="w-full max-w-md mx-auto px-6">
-            <div className="h-56 w-full glass-card rounded-3xl flex items-center justify-center flex-col text-slate-400 text-center px-6">
-              <CreditCard className="w-12 h-12 mb-4 opacity-50 text-emerald-500" />
-              <p>You don't have any cards.</p>
-              <button onClick={() => setIsAdding(true)} className="mt-4 px-4 py-2 bg-emerald-500 text-slate-900 rounded-xl font-medium text-sm">Issue Card</button>
-            </div>
+          <div className="h-56 w-full glass-card rounded-3xl flex items-center justify-center flex-col text-slate-400 text-center px-6">
+            <CreditCard className="w-12 h-12 mb-4 opacity-50 text-emerald-500" />
+            <p>You don't have any cards.</p>
+            <button onClick={() => setIsAdding(true)} className="mt-4 px-4 py-2 bg-emerald-500 text-slate-900 rounded-xl font-medium text-sm">Issue Card</button>
           </div>
         )}
-      </div>
 
-      <div className="w-full max-w-md px-6 mt-2">
         {/* Management Options */}
         {activeCard && (
         <div className="space-y-6 w-full animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -500,7 +397,7 @@ export default function Cards() {
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-2 mt-4">Manage card</h3>
             
             <div className="space-y-1">
-               <button onClick={handleLoadTransactions} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
+               <button onClick={() => handleInteraction('Recent Transactions', 'You have no recent transactions on this card.')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
                   <div className="flex items-center gap-4">
                      <List className="w-5 h-5 text-slate-400" />
                      <span className="text-sm font-medium text-slate-200">View recent card transactions</span>
@@ -508,17 +405,15 @@ export default function Cards() {
                   <ChevronRightIcon />
                </button>
                
-               {activeCard.type === 'physical' && (
-                  <button onClick={() => handleInteraction('Card Controls', 'Card controls (such as contactless toggle, online payments) will be available once the card is active.')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
-                     <div className="flex items-center gap-4">
-                        <Settings className="w-5 h-5 text-slate-400" />
-                        <span className="text-sm font-medium text-slate-200">Card controls</span>
-                     </div>
-                     <ChevronRightIcon />
-                  </button>
-               )}
+               <button onClick={() => handleInteraction('Card Controls', 'Card controls (such as contactless toggle, online payments) will be available once the card is active.')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
+                  <div className="flex items-center gap-4">
+                     <Settings className="w-5 h-5 text-slate-400" />
+                     <span className="text-sm font-medium text-slate-200">Card controls</span>
+                  </div>
+                  <ChevronRightIcon />
+               </button>
 
-               <button onClick={() => setViewingLimits(true)} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
+               <button onClick={() => handleInteraction('Spending Limits', 'Daily limit: £10,000\nMonthly limit: £50,000')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
                   <div className="flex items-center gap-4">
                      <Gauge className="w-5 h-5 text-slate-400" />
                      <span className="text-sm font-medium text-slate-200">Your spending limits</span>
@@ -526,17 +421,15 @@ export default function Cards() {
                   <ChevronRightIcon />
                </button>
                
-               {activeCard.type === 'physical' && (
-                  <button onClick={() => handleInteraction('Unblock PIN', 'Your PIN is currently active and not blocked. If you enter it wrong 3 times at an ATM, you can unblock it here.')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
-                     <div className="flex items-center gap-4">
-                        <Unlock className="w-5 h-5 text-slate-400" />
-                        <span className="text-sm font-medium text-slate-200">Unblock PIN</span>
-                     </div>
-                     <ChevronRightIcon />
-                  </button>
-               )}
+               <button onClick={() => handleInteraction('Unblock PIN', 'Your PIN is currently active and not blocked. If you enter it wrong 3 times at an ATM, you can unblock it here.')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
+                  <div className="flex items-center gap-4">
+                     <Unlock className="w-5 h-5 text-slate-400" />
+                     <span className="text-sm font-medium text-slate-200">Unblock PIN</span>
+                  </div>
+                  <ChevronRightIcon />
+               </button>
 
-               <button onClick={() => { setNewLabel(activeCard.label || ''); setEditingLabel(true); }} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
+               <button onClick={() => handleInteraction('Card Label', 'This feature allows you to rename this card (e.g. Groceries).')} className="w-full flex items-center justify-between p-3 rounded-2xl hover:bg-slate-800/50 transition">
                   <div className="flex items-center gap-4">
                      <PenLine className="w-5 h-5 text-slate-400" />
                      <span className="text-sm font-medium text-slate-200">Card label</span>
@@ -595,97 +488,6 @@ export default function Cards() {
                    Close
                 </button>
              </motion.div>
-          </motion.div>
-        )}
-
-        {editingLabel && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 bg-black/80 backdrop-blur-md"
-            onClick={() => setEditingLabel(false)}
-          >
-             <motion.div 
-               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-               className="bg-slate-900 border border-slate-800 rounded-[2rem] p-8 max-w-sm w-full shadow-2xl relative"
-               onClick={e => e.stopPropagation()}
-             >
-                <h3 className="text-xl font-bold text-slate-100 mb-2 text-center">Edit Card Label</h3>
-                <p className="text-slate-400 text-sm mb-6 text-center">Choose a name to easily identify this card.</p>
-                <form onSubmit={handleUpdateLabel}>
-                   <input type="text" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} required placeholder="e.g. Groceries" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:outline-none focus:border-emerald-500 mb-6" />
-                   <div className="flex gap-4">
-                      <button type="button" onClick={() => setEditingLabel(false)} className="flex-1 py-4 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition">Cancel</button>
-                      <button type="submit" className="flex-1 py-4 rounded-xl bg-emerald-500 text-slate-900 font-bold hover:bg-emerald-400 transition">Save</button>
-                   </div>
-                </form>
-             </motion.div>
-          </motion.div>
-        )}
-
-        {viewingLimits && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 bg-black/80 backdrop-blur-md"
-            onClick={() => setViewingLimits(false)}
-          >
-             <motion.div 
-               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-               className="bg-slate-900 border border-slate-800 rounded-[2rem] p-8 max-w-sm w-full shadow-2xl relative"
-               onClick={e => e.stopPropagation()}
-             >
-                <h3 className="text-xl font-bold text-slate-100 mb-2 text-center">Set Spending Limit</h3>
-                <p className="text-slate-400 text-sm mb-6 text-center">Control how much can be spent on this card monthly.</p>
-                <form onSubmit={handleUpdateLimit}>
-                   <div className="relative mb-6">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">£</span>
-                      <input type="number" min="0" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} required placeholder="e.g. 1000" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 pl-10 text-white focus:outline-none focus:border-emerald-500 text-lg font-mono" />
-                   </div>
-                   <div className="flex gap-4">
-                      <button type="button" onClick={() => setViewingLimits(false)} className="flex-1 py-4 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition">Cancel</button>
-                      <button type="submit" className="flex-1 py-4 rounded-xl bg-emerald-500 text-slate-900 font-bold hover:bg-emerald-400 transition">Set Limit</button>
-                   </div>
-                </form>
-             </motion.div>
-          </motion.div>
-        )}
-
-        {viewingTransactions && (
-          <motion.div 
-            initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 100 }}
-            className="fixed inset-0 z-50 flex flex-col bg-slate-950 overflow-y-auto"
-          >
-             <div className="sticky top-0 bg-slate-950/80 backdrop-blur-md p-6 flex justify-between items-center border-b border-white/5 z-10 w-full max-w-md mx-auto">
-                <h3 className="text-xl font-bold text-slate-100">Card Transactions</h3>
-                <button onClick={() => setViewingTransactions(false)} className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
-                   <X className="w-5 h-5" />
-                </button>
-             </div>
-             <div className="p-6 space-y-4 w-full max-w-md mx-auto flex-1 pb-24">
-                {cardTransactions.length === 0 ? (
-                   <div className="text-center text-slate-500 py-12">
-                      <List className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <p>No transactions found for this card.</p>
-                   </div>
-                ) : (
-                   cardTransactions.map(tx => (
-                     <div key={tx.id} className="flex items-center justify-between p-4 glass-card rounded-2xl">
-                        <div className="flex items-center gap-4">
-                           <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-                              <CardIcon className="w-5 h-5" />
-                           </div>
-                           <div>
-                              <div className="text-sm font-bold text-slate-200">{tx.merchant_data?.name || 'Card Transaction'}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">{new Date(tx.created * 1000).toLocaleDateString()}</div>
-                           </div>
-                        </div>
-                        <div className="text-right">
-                           <div className="text-sm font-bold text-slate-100">-£{(tx.amount / 100).toFixed(2)}</div>
-                           <div className={`text-[10px] font-bold mt-0.5 uppercase tracking-wider ${tx.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}`}>{tx.status}</div>
-                        </div>
-                     </div>
-                   ))
-                )}
-             </div>
           </motion.div>
         )}
 
@@ -758,14 +560,14 @@ export default function Cards() {
                   <div className="space-y-4">
                      <button 
                        onClick={() => handleIssueCard('virtual')}
-                       disabled={issuing}
+                       disabled={issuing || cards.filter(c => c.type === 'virtual').length >= 3}
                        className="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-800/80 hover:bg-slate-800 transition border border-slate-700/50 text-left disabled:opacity-50"
                      >
                        <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shrink-0">
                          <MonitorSmartphone className="w-6 h-6" />
                        </div>
                        <div>
-                         <h3 className="font-semibold text-slate-200 flex items-center gap-2">Virtual Card</h3>
+                         <h3 className="font-semibold text-slate-200 flex items-center gap-2">Virtual Card {cards.filter(c => c.type === 'virtual').length >= 3 && <span className="text-[10px] bg-rose-500/20 text-rose-500 px-2 py-0.5 rounded uppercase">Limit Reached</span>}</h3>
                          <p className="text-xs text-slate-400 mt-1">Available instantly for online purchases. Add to Apple/Google Pay.</p>
                        </div>
                      </button>
@@ -820,11 +622,11 @@ export default function Cards() {
                   </div>
 
                   <button 
-                     onClick={() => handleIssueCard(selectedType)}
+                     onClick={() => handleIssueCard('virtual')}
                      disabled={issuing}
                      className="w-full py-4 mt-4 bg-emerald-500 text-slate-900 rounded-xl font-bold disabled:opacity-50"
                   >
-                     {issuing ? 'Ordering...' : `Order ${selectedType === 'physical' ? 'Physical' : 'Virtual'} Card`}
+                     {issuing ? 'Ordering...' : 'Order Virtual Card'}
                   </button>
                 </div>
               )}
